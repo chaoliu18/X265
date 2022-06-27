@@ -1,0 +1,75 @@
+//------------------------------------------------------------------------------
+    //
+    //  The confidential and proprietary information contained in this file may
+    //  only be used by a person authorised under and to the extent permitted
+    //  by a subsisting licensing agreement from XK Silicon.
+    //
+    //                   (C) COPYRIGHT 2020 XK Silicon.
+    //                       ALL RIGHTS RESERVED
+    //
+    //  This entire notice must be reproduced on all copies of this file
+    //  and copies of this file may only be made by a person if such person is
+    //  permitted to do so under the terms of a subsisting license agreement
+    //  from XK Silicon.
+    //
+    //  Revision       : 112933
+    //  Release        : XKCDC
+    //
+//------------------------------------------------------------------------------
+    //
+    //  Filename       : launch.json
+    //  Author         : Liu Chao
+    //  Reset          : 2022-06-27
+    //
+//------------------------------------------------------------------------------
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            // Resolved by CMake Tools:
+            "program": "${command:cmake.launchTargetPath}",
+            "args": ["--input",          "/home/liuchao/cliu/f265/bitDepth_8/BQSquare/BQSquare.yuv",
+                    "--frames",         "100",
+                    "--input-res",      "416x240",
+                    "--input-depth",    "8",
+                    "--output-depth",   "8",
+                    "--qp",             "22",
+                    "--fps",            "60",
+                    "--keyint",         "0",
+                    "--output",         "x265.bin",
+                    "--log-level",      "full",
+                    "--psnr",
+                    "--tune",           "psnr",
+                    "--preset",         "veryslow",
+                    "--pass",           "1",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    // add the directory where our target was built to the PATHs
+                    // it gets resolved by CMake Tools:
+                    "name": "PATH",
+                    "value": "$PATH:${command:cmake.launchTargetDirectory}"
+                },
+                {
+                    "name": "OTHER_VALUE",
+                    "value": "Something something"
+                }
+            ],
+            "MIMode": "gdb",
+            "externalConsole": false,
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
