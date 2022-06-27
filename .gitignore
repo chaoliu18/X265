@@ -1,2 +1,6 @@
 /x265/build/*
+!/x265/build/linux
+/x265/build/linux/*
+!/x265/build/linux/make-Makefiles.bash
+/x265/source/build/*
 /sessionTest/*
