@@ -511,6 +511,268 @@ void Analysis::qprdRefine(const CUData& parentCTU, const CUGeom& cuGeom, int32_t
     md.bestMode->reconYuv.copyToPicYuv(*m_frame->m_reconPic, parentCTU.m_cuAddr, cuGeom.absPartIdx);
 }
 
+
+
+
+void Analysis::generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx, bool generateGhhGvv)
+{
+    memset(&edgCplx, 0, sizeof(EdgeComplexity));
+
+    // yAverage
+    uint32_t yAverage = 0;
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            yAverage += srcY[j * stride + i];
+        }
+    }
+    yAverage = yAverage / cuSize / cuSize;
+
+    // Gh
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            if (j < cuSize / 2)
+                edgCplx.GLh += abs(srcY[j * stride + i] - yAverage);
+            else
+                edgCplx.GLh -= abs(srcY[j * stride + i] - yAverage);
+        }
+    }
+
+    // Gv
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            if (i < cuSize / 2)
+                edgCplx.GLv += abs(srcY[j * stride + i] - yAverage);
+            else
+                edgCplx.GLv -= abs(srcY[j * stride + i] - yAverage);
+        }
+    }
+
+    // G45
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            if (i < j)
+                edgCplx.GL45 += abs(srcY[j * stride + i] - yAverage);
+            else if (i > j)
+                edgCplx.GL45 -= abs(srcY[j * stride + i] - yAverage);
+        }
+    }
+
+    // G135
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            if (i < cuSize - 1 - j)
+                edgCplx.GL135 += abs(srcY[j * stride + i] - yAverage);
+            else if (i > cuSize - 1 - j)
+                edgCplx.GL135 -= abs(srcY[j * stride + i] - yAverage);
+        }
+    }
+
+    // GhhGvv
+    if(generateGhhGvv) {
+        for (uint32_t k = 0; k < 4; k++) {
+            // Ghh
+            for (uint32_t j = 0; j < cuSize; j++) {
+                for (uint32_t i = k * cuSize / 4; i < (k + 1) * cuSize / 4; i++) {
+                    if (j < cuSize / 2)
+                        edgCplx.Ghh[k] += abs(srcY[j * stride + i] - yAverage);
+                    else
+                        edgCplx.Ghh[k] -= abs(srcY[j * stride + i] - yAverage);
+                }
+            }
+            // Gvv
+            for (uint32_t j = k * cuSize / 4; j < (k + 1) * cuSize / 4; j++) {
+                for (uint32_t i = 0; i < cuSize; i++) {
+                    if (i < cuSize / 2)
+                        edgCplx.Gvv[k] += abs(srcY[j * stride + i] - yAverage);
+                    else
+                        edgCplx.Gvv[k] -= abs(srcY[j * stride + i] - yAverage);
+                }
+            }
+        }
+    }
+
+    // abs
+    edgCplx.GLh   = abs(edgCplx.GLh);
+    edgCplx.GLv   = abs(edgCplx.GLv);
+    edgCplx.GL45  = abs(edgCplx.GL45);
+    edgCplx.GL135 = abs(edgCplx.GL135);
+    if(generateGhhGvv) {
+        for (uint32_t i = 0; i < 4; i++) {
+            edgCplx.Ghh[i] = abs(edgCplx.Ghh[i]);
+            edgCplx.Gvv[i] = abs(edgCplx.Gvv[i]);
+        }
+    }
+}
+
+void Analysis::generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool generateGhhGvv, const CUGeom& cuGeom)
+{
+    uint32_t depth = cuGeom.depth;
+    ModeDepth& md = m_modeDepth[depth];
+    const Yuv& fencYuv = md.fencYuv;
+
+    uint32_t cuSize = 1 << cuGeom.log2CUSize;
+    uint32_t stride = fencYuv.m_size;
+    pixel* srcY = fencYuv.m_buf[0];
+
+    generateGlobalEdgeComplexityCore(srcY, stride, cuSize, edgCplx, generateGhhGvv);
+}
+
+void Analysis::generateFilterPixel(pixel* srcY, pixel* fltY[4], uint32_t stride, uint32_t cuSize) // TODO : check padding
+{
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            // flth
+            {
+                pixel pxlA = i == 0          ? srcY[j * stride + 0         ] : srcY[j * stride + i - 1];
+                pixel pxlB = i == cuSize - 1 ? srcY[j * stride + cuSize - 1] : srcY[j * stride + i + 1];
+                fltY[0][j * stride + i] = abs(pxlA - pxlB);
+            }
+            // fltv
+            {
+                pixel pxlA = j == 0          ? srcY[0            * stride + i] : srcY[(j - 1) * stride + i];
+                pixel pxlB = j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i] : srcY[(j + 1) * stride + i];
+                fltY[1][j * stride + i] = abs(pxlA - pxlB);
+            }
+            // flt45
+            {
+                pixel pxlA = i == 0          ? (j == 0          ? srcY[0            * stride + 0         ] : srcY[(j - 1) * stride + 0         ]) 
+                                             : (j == 0          ? srcY[0            * stride + i - 1     ] : srcY[(j - 1) * stride + i - 1     ]);
+                pixel pxlB = i == cuSize - 1 ? (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + cuSize - 1] : srcY[(j + 1) * stride + cuSize - 1])
+                                             : (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i + 1     ] : srcY[(j + 1) * stride + i + 1     ]);
+                fltY[2][j * stride + i] = abs(pxlA - pxlB);
+            }
+            // flt135
+            {
+                pixel pxlA = i == cuSize - 1 ? (j == 0          ? srcY[0            * stride + cuSize - 1] : srcY[(j - 1) * stride + cuSize - 1]) 
+                                             : (j == 0          ? srcY[0            * stride + i + 1     ] : srcY[(j - 1) * stride + i + 1     ]);
+                pixel pxlB = i == 0          ? (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + 0         ] : srcY[(j + 1) * stride + 0         ])
+                                             : (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i - 1     ] : srcY[(j + 1) * stride + i - 1     ]);
+                fltY[3][j * stride + i] = abs(pxlA - pxlB);
+            }
+        }
+    }
+}
+
+void Analysis::generateLocalEdgeComplexityCore(pixel* fltY[4], uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx)
+{
+    memset(&edgCplx, 0, sizeof(EdgeComplexity));
+
+    // yAverage
+    uint32_t yAverage[4] = {0, 0, 0, 0};
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            yAverage[0] += fltY[0][j * stride + i];
+            yAverage[1] += fltY[1][j * stride + i];
+            yAverage[2] += fltY[2][j * stride + i];
+            yAverage[3] += fltY[3][j * stride + i];
+        }
+    }
+    yAverage[0] = yAverage[0] / cuSize / cuSize;
+    yAverage[1] = yAverage[1] / cuSize / cuSize;
+    yAverage[2] = yAverage[2] / cuSize / cuSize;
+    yAverage[3] = yAverage[3] / cuSize / cuSize;
+
+    // Lh, Lv, L45, L135
+    for (uint32_t j = 0; j < cuSize; j++) {
+        for (uint32_t i = 0; i < cuSize; i++) {
+            edgCplx.GLh   += abs(fltY[0][j * stride + i] - yAverage[0]);
+            edgCplx.GLv   += abs(fltY[1][j * stride + i] - yAverage[1]);
+            edgCplx.GL45  += abs(fltY[2][j * stride + i] - yAverage[2]);
+            edgCplx.GL135 += abs(fltY[3][j * stride + i] - yAverage[3]);
+        }
+    }
+}
+
+void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, const CUGeom& cuGeom)
+{
+    uint32_t depth = cuGeom.depth;
+    ModeDepth& md = m_modeDepth[depth];
+    const Yuv& fencYuv = md.fencYuv;
+    uint32_t cuSize = 1 << cuGeom.log2CUSize;
+    uint32_t stride = fencYuv.m_size;
+    pixel* srcY = fencYuv.m_buf[0];
+
+    pixel* fltY[4];
+    for (uint32_t i = 0; i < 4; i++) {
+        fltY[i] = new pixel[cuSize * stride];
+    }
+    generateFilterPixel(srcY, fltY, stride, cuSize);
+
+    generateLocalEdgeComplexityCore(fltY, stride, cuSize, edgCplx);
+
+    for (uint32_t i = 0; i < 4; i++) {
+        delete fltY[i];
+    }
+}
+
+void Analysis::decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeComplexity pGEdgCplx, EdgeComplexity pLEdgCplx, EdgeComplexity sGEdgCplx[4], EdgeComplexity sLEdgCplx[4], uint32_t depth, int32_t qp)
+{
+    int64_t pGh   = pGEdgCplx.GLh;
+    int64_t pGv   = pGEdgCplx.GLv;
+    int64_t pG45  = pGEdgCplx.GL45;
+    int64_t pG135 = pGEdgCplx.GL135;
+    int64_t pLh   = pLEdgCplx.GLh;
+    int64_t pLv   = pLEdgCplx.GLv;
+    int64_t pL45  = pLEdgCplx.GL45;
+    int64_t pL135 = pLEdgCplx.GL135;
+    int64_t maxPGhh, maxPGvv;
+    int64_t maxSGh, maxSGv, maxSG45, maxSG135, maxSLh, maxSLv, maxSL45, maxSL135;
+    for (uint32_t i = 0; i < 4; i++) {
+        if (i == 0) {
+            maxPGhh = pGEdgCplx.Ghh[i];
+            maxPGvv = pGEdgCplx.Gvv[i];
+            maxSGh   = sGEdgCplx[i].GLh;
+            maxSGv   = sGEdgCplx[i].GLv;
+            maxSG45  = sGEdgCplx[i].GL45;
+            maxSG135 = sGEdgCplx[i].GL135;
+            maxSLh   = sLEdgCplx[i].GLh;
+            maxSLv   = sLEdgCplx[i].GLv;
+            maxSL45  = sLEdgCplx[i].GL45;
+            maxSL135 = sLEdgCplx[i].GL135;
+        }
+        else {
+            maxPGhh = maxPGhh >= pGEdgCplx.Ghh[i] ? maxPGhh : pGEdgCplx.Ghh[i];
+            maxPGvv = maxPGvv >= pGEdgCplx.Gvv[i] ? maxPGvv : pGEdgCplx.Gvv[i];
+            maxSGh   = maxSGh   >= sGEdgCplx[i].GLh   ? maxSGh   : sGEdgCplx[i].GLh;
+            maxSGv   = maxSGv   >= sGEdgCplx[i].GLv   ? maxSGv   : sGEdgCplx[i].GLv;
+            maxSG45  = maxSG45  >= sGEdgCplx[i].GL45  ? maxSG45  : sGEdgCplx[i].GL45;
+            maxSG135 = maxSG135 >= sGEdgCplx[i].GL135 ? maxSG135 : sGEdgCplx[i].GL135;
+            maxSLh   = maxSLh   >= sLEdgCplx[i].GLh   ? maxSLh   : sLEdgCplx[i].GLh;
+            maxSLv   = maxSLv   >= sLEdgCplx[i].GLv   ? maxSLv   : sLEdgCplx[i].GLv;
+            maxSL45  = maxSL45  >= sLEdgCplx[i].GL45  ? maxSL45  : sLEdgCplx[i].GL45;
+            maxSL135 = maxSL135 >= sLEdgCplx[i].GL135 ? maxSL135 : sLEdgCplx[i].GL135;
+        }
+    }
+
+    int64_t Thl = 5120;
+    int64_t Thg = 48 * qp - 634;
+    for (uint32_t i = 0; i < depth; i++) {
+      Thl = Thl * 3 / 4 ;
+      Thg = Thg * 3 / 4 ;
+    }
+
+    if ((pGh   <= Thg && pLh   <= Thl && maxSGh   <= Thg / 4 && maxPGhh <= Thg / 4 && maxSLh   <= Thl / 4)
+     || (pGv   <= Thg && pLv   <= Thl && maxSGv   <= Thg / 4 && maxPGvv <= Thg / 4 && maxSLv   <= Thl / 4)
+     || (pG45  <= Thg && pL45  <= Thl && maxSG45  <= Thg / 4 &&                       maxSL45  <= Thl / 4)
+     || (pG135 <= Thg && pL135 <= Thl && maxSG135 <= Thg / 4 &&                       maxSL135 <= Thl / 4)
+    ) {
+        flagSplit   = 0;
+        flagUnsplit = 1;
+    }
+    else if ((pGh > Thg && pGv > Thg && pG45 > Thg && pG135 > Thg)
+          || (pLh > Thl && pLv > Thl && pL45 > Thl && pL135 > Thl)) {
+        flagSplit   = 1;
+        flagUnsplit = 0;
+    }
+    else {
+        flagSplit   = 1;
+        flagUnsplit = 1;
+    }
+}
+
+
+
+
 uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom, int32_t qp)
 {
     uint32_t depth = cuGeom.depth;
@@ -530,6 +792,38 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
         if (cuGeom.log2CUSize == (uint32_t)(g_log2Size[m_param->minCUSize]) && !bDecidedDepth)
             bAlreadyDecided = false;
     }
+
+
+
+
+    //
+    if ((cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && mightSplit) {
+        // initialization
+        bool flagSplit, flagUnsplit;
+        EdgeComplexity pGEdgCplx, pLEdgCplx;
+        EdgeComplexity sGEdgCplx[4], sLEdgCplx[4];
+        // parent CU
+        generateGlobalEdgeComplexity(pGEdgCplx, true, cuGeom);
+        generateLocalEdgeComplexity(pLEdgCplx, cuGeom);
+        // child CUs
+        uint32_t nextDepth = depth + 1;
+        ModeDepth& nd = m_modeDepth[nextDepth];
+        for (uint32_t subPartIdx = 0; subPartIdx < 4; subPartIdx++)
+        {
+            const CUGeom& childGeom = *(&cuGeom + cuGeom.childOffset + subPartIdx);
+            m_modeDepth[0].fencYuv.copyPartToYuv(nd.fencYuv, childGeom.absPartIdx);
+            generateGlobalEdgeComplexity(sGEdgCplx[subPartIdx], false, childGeom);
+            generateLocalEdgeComplexity(sLEdgCplx[subPartIdx], childGeom);
+        }
+        // decision
+        decisionEdgeComplexity(flagSplit, flagUnsplit, pGEdgCplx, pLEdgCplx, sGEdgCplx, sLEdgCplx, depth, qp);
+        // set
+        mightNotSplit = mightNotSplit & flagUnsplit;
+        mightSplit    = mightSplit    & flagSplit  ;
+    }
+
+
+
 
     if (bAlreadyDecided)
     {

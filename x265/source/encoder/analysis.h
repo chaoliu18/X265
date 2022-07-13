@@ -56,6 +56,22 @@ struct SplitData
     }
 };
 
+
+
+
+struct EdgeComplexity
+{
+    int64_t GLh;
+    int64_t GLv;
+    int64_t GL45;
+    int64_t GL135;
+    int64_t Ghh[4];
+    int64_t Gvv[4];
+};
+
+
+
+
 class Analysis : public Search
 {
 public:
@@ -163,6 +179,12 @@ protected:
 
     /* full analysis for an I-slice CU */
     uint64_t compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom, int32_t qp);
+    void generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool generateGhhGvv, const CUGeom& cuGeom);
+    void generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx, bool generateGhhGvv);
+    void generateLocalEdgeComplexity(EdgeComplexity& edgCplx, const CUGeom& cuGeom);
+    void generateFilterPixel(pixel* srcY, pixel* fltY[4], uint32_t stride, uint32_t cuSize);
+    void generateLocalEdgeComplexityCore(pixel* fltY[4], uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx);
+    void decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeComplexity pGEdgCplx, EdgeComplexity pLEdgCplx, EdgeComplexity sGEdgCplx[4], EdgeComplexity sLEdgCplx[4], uint32_t depth, int32_t qp);
 
     /* full analysis for a P or B slice CU */
     uint32_t compressInterCU_dist(const CUData& parentCTU, const CUGeom& cuGeom, int32_t qp);
