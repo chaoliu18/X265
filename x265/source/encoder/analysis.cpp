@@ -514,7 +514,7 @@ void Analysis::qprdRefine(const CUData& parentCTU, const CUGeom& cuGeom, int32_t
 
 
 
-void Analysis::generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx, bool generateGhhGvv)
+void Analysis::generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const pixel* srcY, uint32_t stride, uint32_t cuSize, bool genGhhGvv)
 {
     memset(&edgCplx, 0, sizeof(EdgeComplexity));
 
@@ -527,48 +527,42 @@ void Analysis::generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, ui
     }
     yAverage = yAverage / cuSize / cuSize;
 
-    // Gh
+    // Gh, Gv, G45, G135
     for (uint32_t j = 0; j < cuSize; j++) {
         for (uint32_t i = 0; i < cuSize; i++) {
-            if (j < cuSize / 2)
-                edgCplx.GLh += abs(srcY[j * stride + i] - yAverage);
-            else
-                edgCplx.GLh -= abs(srcY[j * stride + i] - yAverage);
-        }
-    }
-
-    // Gv
-    for (uint32_t j = 0; j < cuSize; j++) {
-        for (uint32_t i = 0; i < cuSize; i++) {
-            if (i < cuSize / 2)
-                edgCplx.GLv += abs(srcY[j * stride + i] - yAverage);
-            else
-                edgCplx.GLv -= abs(srcY[j * stride + i] - yAverage);
-        }
-    }
-
-    // G45
-    for (uint32_t j = 0; j < cuSize; j++) {
-        for (uint32_t i = 0; i < cuSize; i++) {
-            if (i < j)
-                edgCplx.GL45 += abs(srcY[j * stride + i] - yAverage);
-            else if (i > j)
-                edgCplx.GL45 -= abs(srcY[j * stride + i] - yAverage);
-        }
-    }
-
-    // G135
-    for (uint32_t j = 0; j < cuSize; j++) {
-        for (uint32_t i = 0; i < cuSize; i++) {
-            if (i < cuSize - 1 - j)
-                edgCplx.GL135 += abs(srcY[j * stride + i] - yAverage);
-            else if (i > cuSize - 1 - j)
-                edgCplx.GL135 -= abs(srcY[j * stride + i] - yAverage);
+            // Gh
+            {
+                if (j < cuSize / 2)
+                    edgCplx.GLh += abs(srcY[j * stride + i] - yAverage);
+                else
+                    edgCplx.GLh -= abs(srcY[j * stride + i] - yAverage);
+            }
+            // Gv
+            {
+                if (i < cuSize / 2)
+                    edgCplx.GLv += abs(srcY[j * stride + i] - yAverage);
+                else
+                    edgCplx.GLv -= abs(srcY[j * stride + i] - yAverage);
+            }
+            // G45
+            {
+                if (i < j)
+                    edgCplx.GL45 += abs(srcY[j * stride + i] - yAverage);
+                else if (i > j)
+                    edgCplx.GL45 -= abs(srcY[j * stride + i] - yAverage);
+            }
+            // G135
+            {
+                if (i < cuSize - 1 - j)
+                    edgCplx.GL135 += abs(srcY[j * stride + i] - yAverage);
+                else if (i > cuSize - 1 - j)
+                    edgCplx.GL135 -= abs(srcY[j * stride + i] - yAverage);
+            }
         }
     }
 
     // GhhGvv
-    if(generateGhhGvv) {
+    if(genGhhGvv) {
         for (uint32_t k = 0; k < 4; k++) {
             // Ghh
             for (uint32_t j = 0; j < cuSize; j++) {
@@ -596,7 +590,7 @@ void Analysis::generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, ui
     edgCplx.GLv   = abs(edgCplx.GLv);
     edgCplx.GL45  = abs(edgCplx.GL45);
     edgCplx.GL135 = abs(edgCplx.GL135);
-    if(generateGhhGvv) {
+    if(genGhhGvv) {
         for (uint32_t i = 0; i < 4; i++) {
             edgCplx.Ghh[i] = abs(edgCplx.Ghh[i]);
             edgCplx.Gvv[i] = abs(edgCplx.Gvv[i]);
@@ -604,20 +598,23 @@ void Analysis::generateGlobalEdgeComplexityCore(pixel* srcY, uint32_t stride, ui
     }
 }
 
-void Analysis::generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool generateGhhGvv, const CUGeom& cuGeom)
+void Analysis::generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, bool genGhhGvv, const CUGeom& cuGeom)
 {
-    uint32_t depth = cuGeom.depth;
-    ModeDepth& md = m_modeDepth[depth];
-    const Yuv& fencYuv = md.fencYuv;
+    uint32_t     depth      = cuGeom.depth;
+    ModeDepth&   md         = m_modeDepth[depth];
+    const Yuv&   fencYuv    = md.fencYuv;
 
-    uint32_t cuSize = 1 << cuGeom.log2CUSize;
-    uint32_t stride = fencYuv.m_size;
-    pixel* srcY = fencYuv.m_buf[0];
+    uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
+    uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
 
-    generateGlobalEdgeComplexityCore(srcY, stride, cuSize, edgCplx, generateGhhGvv);
+    uint32_t     cuSize     = isSubPart ? ((1 << cuGeom.log2CUSize) >> 1) : (1 << cuGeom.log2CUSize);
+    uint32_t     stride     = fencYuv.m_size;
+    const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
+
+    generateGlobalEdgeComplexityCore(edgCplx, srcY, stride, cuSize, genGhhGvv);
 }
 
-void Analysis::generateFilterPixel(pixel* srcY, pixel* fltY[4], uint32_t stride, uint32_t cuSize) // TODO : check padding
+void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t cuSize) // TODO : check padding
 {
     for (uint32_t j = 0; j < cuSize; j++) {
         for (uint32_t i = 0; i < cuSize; i++) {
@@ -653,7 +650,7 @@ void Analysis::generateFilterPixel(pixel* srcY, pixel* fltY[4], uint32_t stride,
     }
 }
 
-void Analysis::generateLocalEdgeComplexityCore(pixel* fltY[4], uint32_t stride, uint32_t cuSize, EdgeComplexity& edgCplx)
+void Analysis::generateLocalEdgeComplexityCore(EdgeComplexity& edgCplx, pixel* fltY[4], uint32_t stride, uint32_t cuSize)
 {
     memset(&edgCplx, 0, sizeof(EdgeComplexity));
 
@@ -683,22 +680,27 @@ void Analysis::generateLocalEdgeComplexityCore(pixel* fltY[4], uint32_t stride, 
     }
 }
 
-void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, const CUGeom& cuGeom)
+void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, const CUGeom& cuGeom)
 {
-    uint32_t depth = cuGeom.depth;
-    ModeDepth& md = m_modeDepth[depth];
-    const Yuv& fencYuv = md.fencYuv;
-    uint32_t cuSize = 1 << cuGeom.log2CUSize;
-    uint32_t stride = fencYuv.m_size;
-    pixel* srcY = fencYuv.m_buf[0];
+    uint32_t      depth     = cuGeom.depth;
+    ModeDepth&    md        = m_modeDepth[depth];
+    const Yuv&    fencYuv   = md.fencYuv;
+
+    uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
+    uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
+
+    uint32_t     cuSize     = isSubPart ? ((1 << cuGeom.log2CUSize) >> 1) : (1 << cuGeom.log2CUSize);
+    uint32_t     stride     = fencYuv.m_size;
+    const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
 
     pixel* fltY[4];
     for (uint32_t i = 0; i < 4; i++) {
         fltY[i] = new pixel[cuSize * stride];
     }
-    generateFilterPixel(srcY, fltY, stride, cuSize);
 
-    generateLocalEdgeComplexityCore(fltY, stride, cuSize, edgCplx);
+    generateFilterPixel(fltY, srcY, stride, cuSize);
+
+    generateLocalEdgeComplexityCore(edgCplx, fltY, stride, cuSize);
 
     for (uint32_t i = 0; i < 4; i++) {
         delete fltY[i];
@@ -756,17 +758,17 @@ void Analysis::decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeCo
      || (pG45  <= Thg && pL45  <= Thl && maxSG45  <= Thg / 4 &&                       maxSL45  <= Thl / 4)
      || (pG135 <= Thg && pL135 <= Thl && maxSG135 <= Thg / 4 &&                       maxSL135 <= Thl / 4)
     ) {
-        flagSplit   = 0;
-        flagUnsplit = 1;
+        flagSplit   = false;
+        flagUnsplit = true;
     }
     else if ((pGh > Thg && pGv > Thg && pG45 > Thg && pG135 > Thg)
           || (pLh > Thl && pLv > Thl && pL45 > Thl && pL135 > Thl)) {
-        flagSplit   = 1;
-        flagUnsplit = 0;
+        flagSplit   = true;
+        flagUnsplit = false;
     }
     else {
-        flagSplit   = 1;
-        flagUnsplit = 1;
+        flagSplit   = true;
+        flagUnsplit = true;
     }
 }
 
@@ -803,17 +805,13 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
         EdgeComplexity pGEdgCplx, pLEdgCplx;
         EdgeComplexity sGEdgCplx[4], sLEdgCplx[4];
         // parent CU
-        generateGlobalEdgeComplexity(pGEdgCplx, true, cuGeom);
-        generateLocalEdgeComplexity(pLEdgCplx, cuGeom);
+        generateGlobalEdgeComplexity(pGEdgCplx, false, 0, true, cuGeom);
+        generateLocalEdgeComplexity (pLEdgCplx, false, 0,       cuGeom);
         // child CUs
-        uint32_t nextDepth = depth + 1;
-        ModeDepth& nd = m_modeDepth[nextDepth];
         for (uint32_t subPartIdx = 0; subPartIdx < 4; subPartIdx++)
         {
-            const CUGeom& childGeom = *(&cuGeom + cuGeom.childOffset + subPartIdx);
-            m_modeDepth[0].fencYuv.copyPartToYuv(nd.fencYuv, childGeom.absPartIdx);
-            generateGlobalEdgeComplexity(sGEdgCplx[subPartIdx], false, childGeom);
-            generateLocalEdgeComplexity(sLEdgCplx[subPartIdx], childGeom);
+            generateGlobalEdgeComplexity(sGEdgCplx[subPartIdx], true, subPartIdx, false, cuGeom);
+            generateLocalEdgeComplexity (sLEdgCplx[subPartIdx], true, subPartIdx       , cuGeom);
         }
         // decision
         decisionEdgeComplexity(flagSplit, flagUnsplit, pGEdgCplx, pLEdgCplx, sGEdgCplx, sLEdgCplx, depth, qp);
