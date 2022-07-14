@@ -795,8 +795,14 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
 
 
 
-    //
-    if ((cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && mightSplit) {
+    bool enableTryPUfor8x8 = false; // TODO: check commented out
+
+    bool flagTry2Nx2N     = true;
+    bool flagTryNxNfor8x8 = true;
+
+    if ((                     (cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && mightSplit)
+     || (enableTryPUfor8x8 && (cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && (cuGeom.log2CUSize == 3 && m_slice->m_sps->quadtreeTULog2MinSize < 3))
+       ) {
         // initialization
         bool flagSplit, flagUnsplit;
         EdgeComplexity pGEdgCplx, pLEdgCplx;
@@ -813,8 +819,14 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
         // decision
         decisionEdgeComplexity(flagSplit, flagUnsplit, pGEdgCplx, pLEdgCplx, sGEdgCplx, sLEdgCplx, depth, qp);
         // set
-        mightNotSplit = mightNotSplit & flagUnsplit;
-        mightSplit    = mightSplit    & flagSplit  ;
+        if ((cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && mightSplit) {
+            mightNotSplit = mightNotSplit & flagUnsplit;
+            mightSplit    = mightSplit    & flagSplit  ;
+        }
+        else if (enableTryPUfor8x8 && (cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && (cuGeom.log2CUSize == 3 && m_slice->m_sps->quadtreeTULog2MinSize < 3)) {
+            flagTry2Nx2N     = flagTry2Nx2N     & flagUnsplit;
+            flagTryNxNfor8x8 = flagTryNxNfor8x8 & flagSplit  ;
+        }
     }
 
 
@@ -845,11 +857,13 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
     }
     else if (cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit)
     {
-        md.pred[PRED_INTRA].cu.initSubCU(parentCTU, cuGeom, qp);
-        checkIntra(md.pred[PRED_INTRA], cuGeom, SIZE_2Nx2N);
-        checkBestMode(md.pred[PRED_INTRA], depth);
+        if (flagTry2Nx2N) {
+            md.pred[PRED_INTRA].cu.initSubCU(parentCTU, cuGeom, qp);
+            checkIntra(md.pred[PRED_INTRA], cuGeom, SIZE_2Nx2N);
+            checkBestMode(md.pred[PRED_INTRA], depth);
+        }
 
-        if (cuGeom.log2CUSize == 3 && m_slice->m_sps->quadtreeTULog2MinSize < 3)
+        if (cuGeom.log2CUSize == 3 && m_slice->m_sps->quadtreeTULog2MinSize < 3 && flagTryNxNfor8x8)
         {
             md.pred[PRED_INTRA_NxN].cu.initSubCU(parentCTU, cuGeom, qp);
             checkIntra(md.pred[PRED_INTRA_NxN], cuGeom, SIZE_NxN);
