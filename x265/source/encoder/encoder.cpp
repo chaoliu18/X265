@@ -39,6 +39,7 @@
 #include "ratecontrol.h"
 #include "dpb.h"
 #include "nal.h"
+#include "mctf.h"
 
 #include "x265.h"
 
@@ -2499,6 +2500,13 @@ int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
                 m_lookahead->getEstimatedPictureCost(frameEnc);
             if (m_param->bIntraRefresh)
                  calcRefreshInterval(frameEnc);
+
+            // mctf
+            if (frameEnc->m_lowres.sliceType != X265_TYPE_B && frameEnc->m_lowres.sliceType != X265_TYPE_BREF)
+            {
+                Mctf mctf;
+                mctf.filter(frameEnc, m_lookahead);
+            }
 
             /* Allow FrameEncoder::compressFrame() to start in the frame encoder thread */
             if (!curEncoder->startCompressFrame(frameEnc))
