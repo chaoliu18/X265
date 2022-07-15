@@ -37,6 +37,7 @@ add_library(encoder OBJECT ../x265.h
     nal.cpp nal.h
     sei.cpp sei.h
     sao.cpp sao.h
+    mctf.cpp mctf.h
     entropy.cpp entropy.h
     dpb.cpp dpb.h
     ratecontrol.cpp ratecontrol.h
