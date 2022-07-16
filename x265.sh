@@ -81,7 +81,7 @@ LIST_SEQ=(
 
 # encoder
 LIST_DAT_Q_P=($(seq 22 5 37))                      #REVERT_THIS_ITEM_BEFORE_YOU_COMMIT
-DATA_PRD_INTRA=-1                                  #REVERT_THIS_ITEM_BEFORE_YOU_COMMIT
+DATA_PRD_INTRA=-2                                  #REVERT_THIS_ITEM_BEFORE_YOU_COMMIT
 
 
 #*** MAIN BODY *****************************************************************
@@ -90,10 +90,7 @@ DATA_PRD_INTRA=-1                                  #REVERT_THIS_ITEM_BEFORE_YOU_
 mkdir -p $CSTR_DIR_DST
 rm -rf $CSTR_DIR_DST/*
 rm -rf $CSTR_LOG_RLT_PSNR
-printf "%-51s %-51s %-51s %s\n" "average" "I frame" "P frame" "B frame" >> $CSTR_LOG_RLT_PSNR
-printf "%-13s \t%-7s \t%-7s \t%-7s \t"    "bitrate(kb/s)" "psnr(Y)"    "psnr(U)"    "psnr(V)"    >> $CSTR_LOG_RLT_PSNR
-printf "%-13s \t%-7s \t%-7s \t%-7s \t"    "bitrate(kb/s)" "psnr(Y)"    "psnr(U)"    "psnr(V)"    >> $CSTR_LOG_RLT_PSNR
-printf "%-13s \t%-7s \t%-7s \t%-7s \t"    "bitrate(kb/s)" "psnr(Y)"    "psnr(U)"    "psnr(V)"    >> $CSTR_LOG_RLT_PSNR
+printf "%s\n" "average" >> $CSTR_LOG_RLT_PSNR
 printf "%-13s \t%-7s \t%-7s \t%-7s\n"     "bitrate(kb/s)" "psnr(Y)"    "psnr(U)"    "psnr(V)"    >> $CSTR_LOG_RLT_PSNR
 
 # note down the current time
@@ -159,6 +156,7 @@ do
             --tune                         psnr                                  \
             --preset                       veryslow                              \
             --pass                         1                                     \
+            --recon                        ${CSTR_DIR_DST_FUL}rec.yuv            \
             >& ${CSTR_DIR_DST_FUL}${CSTR_CDC}.log &
     done
 
@@ -198,15 +196,24 @@ do
         # calculate md5
         md5sum ${CSTR_DIR_DST_FUL}${CSTR_CDC}.bin | tee -a $CSTR_LOG_RUN
 
+        # calculate psnr
+        ffmpeg -s ${SIZE_FRA_X}x${SIZE_FRA_Y} -pix_fmt yuv420p -i ${CSTR_SRC}.yuv             \
+               -s ${SIZE_FRA_X}x${SIZE_FRA_Y} -pix_fmt yuv420p -i ${CSTR_DIR_DST_FUL}rec.yuv  \
+               -frames ${NUMB_FRA} -lavfi psnr -f null -                                      \
+               >& ${CSTR_DIR_DST_FUL}psnr.log
+
         # update info (psnr)
-        printf "%-13.2f \t" 0                         >> $CSTR_LOG_RLT_PSNR
-        printf "%-7.3f \t%-7.3f \t%-7.3f \t" 0 0 0    >> $CSTR_LOG_RLT_PSNR
         cat ${CSTR_DIR_DST_FUL}${CSTR_CDC}.log    | \
             perl -e 'while (<>) {
-                        if (/kb\/s: ([\d\.]+)/) {
+                        if (/fps\), ([\d\.]+)/) {
                             printf "%-13.2f \t", $1
                         }
-                        if (/Y:([\d\.]+) U:([\d\.]+) V:([\d\.]+)/) {
+                     }
+                    '                 \
+        >> $CSTR_LOG_RLT_PSNR
+        cat ${CSTR_DIR_DST_FUL}psnr.log           | \
+            perl -e 'while (<>) {
+                        if (/y:([\d\.]+) u:([\d\.]+) v:([\d\.]+)/) {
                             printf "%-7.3f \t%-7.3f \t%-7.3f \t", $1, $2, $3
                         }
                      }
