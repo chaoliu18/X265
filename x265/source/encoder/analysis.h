@@ -173,9 +173,9 @@ protected:
         int64_t Ghh[4];
         int64_t Gvv[4];
     };
-    void generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, bool genGhhGvv, const CUGeom& cuGeom);
+    void generateGlobalEdgeComplexityParentAndSub(EdgeComplexity& pGEdgCplx, EdgeComplexity sGEdgCplx[4], const CUGeom& cuGeom);
     void generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const pixel* srcY, uint32_t stride, uint32_t log2CUSize, bool genGhhGvv);
-    void generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, const CUGeom& cuGeom);
+    void generateLocalEdgeComplexityParentAndSub(EdgeComplexity& pLEdgCplx, EdgeComplexity sLEdgCplx[4], const CUGeom& cuGeom);
     void generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t log2CUSize);
     void generateLocalEdgeComplexityCore(EdgeComplexity& edgCplx, pixel* fltY[4], uint32_t stride, uint32_t log2CUSize);
     void decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeComplexity pGEdgCplx, EdgeComplexity pLEdgCplx, EdgeComplexity sGEdgCplx[4], EdgeComplexity sLEdgCplx[4], uint32_t depth, int32_t qp);
