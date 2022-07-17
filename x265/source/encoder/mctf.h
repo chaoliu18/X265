@@ -186,7 +186,7 @@ private:
 
 //--- TABLE --------------------
     #if JVET_V0056_MCTF
-    const int s_range = 3;
+    const int s_range = 4;
     #else
     const int s_range = 2;
     #endif

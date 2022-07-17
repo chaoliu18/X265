@@ -54,7 +54,7 @@ void Mctf::init(Frame* srcFrame, Lookahead* lookahead)
     m_sourceWidth = srcFrame->m_fencPic->m_picWidth;
     m_sourceHeight = srcFrame->m_fencPic->m_picHeight;
     m_QP = srcFrame->m_param->rc.qp;
-    m_temporalFilterStrengths[4] = 0.95;
+    m_temporalFilterStrengths[0] = 0.95;
     m_gopBasedTemporalFilterFutureReference = 1;
     m_lookahead = lookahead;
     m_frameEnc = srcFrame;
@@ -67,14 +67,9 @@ bool Mctf::filter(Frame* srcFrame, Lookahead* lookahead)
   bool isFilterThisFrame = false;
   if (m_QP >= 17)  // disable filter for QP < 17
   {
-    for (std::map<int, double>::iterator it = m_temporalFilterStrengths.begin(); it != m_temporalFilterStrengths.end(); ++it)
+    if (m_frameEnc->m_lowres.sliceType != X265_TYPE_B && m_frameEnc->m_lowres.sliceType != X265_TYPE_BREF)
     {
-      int filteredFrame = it->first;
-      if (m_frameEnc->m_poc % filteredFrame == 0)
-      {
-        isFilterThisFrame = true;
-        break;
-      }
+      isFilterThisFrame = true;
     }
   }
 
@@ -84,7 +79,8 @@ bool Mctf::filter(Frame* srcFrame, Lookahead* lookahead)
 
     std::deque<TemporalFilterSourcePicInfo> srcFrameInfo;
 
-    int firstFrame = m_frameEnc->m_poc + offset - s_range;
+    int range_past = (s_range <= m_lookahead->m_outputQueue.size()) ? s_range : m_lookahead->m_outputQueue.size();
+    int firstFrame = m_frameEnc->m_poc + offset - range_past;
     int lastFrame = m_frameEnc->m_poc + offset + s_range;
     if (!m_gopBasedTemporalFilterFutureReference)
     {
@@ -92,12 +88,12 @@ bool Mctf::filter(Frame* srcFrame, Lookahead* lookahead)
     }
     // future frames are not available
     lastFrame = (lastFrame >= m_frameEnc->m_param->totalFrames) ? (m_frameEnc->m_param->totalFrames - 1) : lastFrame;
-    int origOffset = -s_range;
+    int origOffset = - range_past;
     // check IDR frame
     if (m_frameEnc->m_lowres.sliceType == X265_TYPE_IDR)
     {
       firstFrame = m_frameEnc->m_poc + offset + 1;
-      origOffset += s_range + 1;
+      origOffset = 1;
     }
     int numRefPast = (firstFrame < m_frameEnc->m_poc + offset) ? m_frameEnc->m_poc + offset - firstFrame : 0;
     int numRefFutr = (lastFrame > m_frameEnc->m_poc + offset) ? lastFrame - (m_frameEnc->m_poc + offset) : 0;
@@ -144,9 +140,13 @@ bool Mctf::filter(Frame* srcFrame, Lookahead* lookahead)
     double overallStrength = -1.0;
     for (std::map<int, double>::iterator it = m_temporalFilterStrengths.begin(); it != m_temporalFilterStrengths.end(); ++it)
     {
-      int frame = it->first;
+      int layer = it->first;
       double strength = it->second;
-      if (m_frameEnc->m_poc % frame == 0)
+      if (layer == 0 && (IS_X265_TYPE_I(m_frameEnc->m_lowres.sliceType) || m_frameEnc->m_lowres.sliceType == X265_TYPE_P))
+      {
+        overallStrength = strength;
+      }
+      if (layer == 1 && m_frameEnc->m_lowres.sliceType == X265_TYPE_BREF)
       {
         overallStrength = strength;
       }
