@@ -569,20 +569,29 @@ void Analysis::generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const p
     }
 }
 
-void Analysis::generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, bool genGhhGvv, const CUGeom& cuGeom)
+void Analysis::generateGlobalEdgeComplexityParentAndSub(EdgeComplexity& pGEdgCplx, EdgeComplexity sGEdgCplx[4], const CUGeom& cuGeom)
 {
     uint32_t     depth      = cuGeom.depth;
     ModeDepth&   md         = m_modeDepth[depth];
     const Yuv&   fencYuv    = md.fencYuv;
 
-    uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
-    uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
-
-    uint32_t     log2CUSize = isSubPart ? cuGeom.log2CUSize - 1 : cuGeom.log2CUSize;
+    // parent CU
+    uint32_t     log2CUSize = cuGeom.log2CUSize;
     uint32_t     stride     = fencYuv.m_size;
-    const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
+    const pixel* srcY       = fencYuv.m_buf[0];
 
-    generateGlobalEdgeComplexityCore(edgCplx, srcY, stride, log2CUSize, genGhhGvv);
+    generateGlobalEdgeComplexityCore(pGEdgCplx, srcY, stride, log2CUSize, true);
+
+    // child CUs
+    uint32_t qNumParts = cuGeom.numPartitions >> 2;
+    for (uint32_t subPartIdx = 0, absPartIdx = 0; subPartIdx < 4; subPartIdx++, absPartIdx += qNumParts)
+    {
+        uint32_t     log2CUSizeSub = log2CUSize - 1;
+        uint32_t     strideSub     = stride;
+        const pixel* srcYSub       = fencYuv.getLumaAddr(absPartIdx);
+
+        generateGlobalEdgeComplexityCore(sGEdgCplx[subPartIdx], srcYSub, strideSub, log2CUSizeSub, false);
+    }
 }
 
 void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t log2CUSize) // TODO : check padding
@@ -637,19 +646,17 @@ void Analysis::generateLocalEdgeComplexityCore(EdgeComplexity& edgCplx, pixel* f
     }
 }
 
-void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPart, uint32_t subPartIdx, const CUGeom& cuGeom)
+void Analysis::generateLocalEdgeComplexityParentAndSub(EdgeComplexity& pLEdgCplx, EdgeComplexity sLEdgCplx[4], const CUGeom& cuGeom)
 {
     uint32_t      depth     = cuGeom.depth;
     ModeDepth&    md        = m_modeDepth[depth];
     const Yuv&    fencYuv   = md.fencYuv;
 
-    uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
-    uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
-
-    uint32_t     log2CUSize = isSubPart ? cuGeom.log2CUSize - 1 : cuGeom.log2CUSize;
+    // parent CU
+    uint32_t     log2CUSize = cuGeom.log2CUSize;
     uint32_t     cuSize     = 1 << log2CUSize;
     uint32_t     stride     = fencYuv.m_size;
-    const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
+    const pixel* srcY       = fencYuv.m_buf[0];
 
     pixel* fltY[4];
     for (uint32_t i = 0; i < 4; i++) {
@@ -658,10 +665,31 @@ void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPa
 
     generateFilterPixel(fltY, srcY, stride, log2CUSize);
 
-    generateLocalEdgeComplexityCore(edgCplx, fltY, stride, log2CUSize);
+    generateLocalEdgeComplexityCore(pLEdgCplx, fltY, stride, log2CUSize);
+
+    // child CUs
+    uint32_t qNumParts = cuGeom.numPartitions >> 2;
+    for (uint32_t subPartIdx = 0, absPartIdx = 0; subPartIdx < 4; subPartIdx++, absPartIdx += qNumParts)
+    {
+        uint32_t     log2CUSizeSub = log2CUSize - 1;
+        //uint32_t     cuSizeSub     = 1 << log2CUSizeSub;
+        uint32_t     strideSub     = stride;
+        //const pixel* srcYSub       = fencYuv.getLumaAddr(absPartIdx);
+
+        pixel* fltYSub[4];
+        for (uint32_t i = 0; i < 4; i++) {
+            fltYSub[i] = &(fltY[i][(!!(subPartIdx & ((uint32_t)2))) * (cuSize >> 1) * stride 
+                                 + (!!(subPartIdx & ((uint32_t)1))) * (cuSize >> 1)
+                                  ]
+                          )
+            ;
+        }
+
+        generateLocalEdgeComplexityCore(sLEdgCplx[subPartIdx], fltYSub, strideSub, log2CUSizeSub);
+    }
 
     for (uint32_t i = 0; i < 4; i++) {
-        delete fltY[i];
+        delete[] fltY[i];
     }
 }
 
@@ -755,15 +783,9 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
         bool flagSplit, flagUnsplit;
         EdgeComplexity pGEdgCplx, pLEdgCplx;
         EdgeComplexity sGEdgCplx[4], sLEdgCplx[4];
-        // parent CU
-        generateGlobalEdgeComplexity(pGEdgCplx, false, 0, true, cuGeom);
-        generateLocalEdgeComplexity (pLEdgCplx, false, 0,       cuGeom);
-        // child CUs
-        for (uint32_t subPartIdx = 0; subPartIdx < 4; subPartIdx++)
-        {
-            generateGlobalEdgeComplexity(sGEdgCplx[subPartIdx], true, subPartIdx, false, cuGeom);
-            generateLocalEdgeComplexity (sLEdgCplx[subPartIdx], true, subPartIdx,        cuGeom);
-        }
+        // generation
+        generateGlobalEdgeComplexityParentAndSub(pGEdgCplx, sGEdgCplx, cuGeom);
+        generateLocalEdgeComplexityParentAndSub (pLEdgCplx, sLEdgCplx, cuGeom);
         // decision
         decisionEdgeComplexity(flagSplit, flagUnsplit, pGEdgCplx, pLEdgCplx, sGEdgCplx, sLEdgCplx, depth, qp);
         // set
