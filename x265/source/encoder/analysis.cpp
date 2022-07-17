@@ -511,83 +511,57 @@ void Analysis::qprdRefine(const CUData& parentCTU, const CUGeom& cuGeom, int32_t
 
 
 
-void Analysis::generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const pixel* srcY, uint32_t stride, uint32_t cuSize, bool genGhhGvv)
+void Analysis::generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const pixel* srcY, uint32_t stride, uint32_t log2CUSize, bool genGhhGvv)
 {
     memset(&edgCplx, 0, sizeof(EdgeComplexity));
 
+    uint32_t cuSize = 1 << log2CUSize;
+
+
     // yAverage
     uint32_t yAverage = 0;
-    for (uint32_t j = 0; j < cuSize; j++) {
+    for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
         for (uint32_t i = 0; i < cuSize; i++) {
-            yAverage += srcY[j * stride + i];
+            yAverage += srcY[jStride + i];
         }
     }
-    yAverage = yAverage / cuSize / cuSize;
+    yAverage = yAverage >> (log2CUSize + log2CUSize);
+
 
     // Gh, Gv, G45, G135
-    for (uint32_t j = 0; j < cuSize; j++) {
+    for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
         for (uint32_t i = 0; i < cuSize; i++) {
-            // Gh
-            {
-                if (j < cuSize / 2)
-                    edgCplx.GLh += abs(srcY[j * stride + i] - yAverage);
-                else
-                    edgCplx.GLh -= abs(srcY[j * stride + i] - yAverage);
-            }
-            // Gv
-            {
-                if (i < cuSize / 2)
-                    edgCplx.GLv += abs(srcY[j * stride + i] - yAverage);
-                else
-                    edgCplx.GLv -= abs(srcY[j * stride + i] - yAverage);
-            }
-            // G45
-            {
-                if (i < j)
-                    edgCplx.GL45 += abs(srcY[j * stride + i] - yAverage);
-                else if (i > j)
-                    edgCplx.GL45 -= abs(srcY[j * stride + i] - yAverage);
-            }
-            // G135
-            {
-                if (i < cuSize - 1 - j)
-                    edgCplx.GL135 += abs(srcY[j * stride + i] - yAverage);
-                else if (i > cuSize - 1 - j)
-                    edgCplx.GL135 -= abs(srcY[j * stride + i] - yAverage);
-            }
+            pixel diffAbs = abs(srcY[jStride + i] - yAverage);
+            edgCplx.GLh   += j < cuSize / 2     ?  diffAbs : -diffAbs;
+            edgCplx.GLv   += i < cuSize / 2     ?  diffAbs : -diffAbs;
+            edgCplx.GL45  += i < j              ?  diffAbs 
+                           : i > j              ? -diffAbs 
+                           :                       0
+            ;
+            edgCplx.GL135 += i < cuSize - 1 - j ?  diffAbs
+                           : i > cuSize - 1 - j ? -diffAbs
+                           :                       0
+            ;
         }
     }
-
-    // GhhGvv
-    if(genGhhGvv) {
-        for (uint32_t k = 0; k < 4; k++) {
-            // Ghh
-            for (uint32_t j = 0; j < cuSize; j++) {
-                for (uint32_t i = k * cuSize / 4; i < (k + 1) * cuSize / 4; i++) {
-                    if (j < cuSize / 2)
-                        edgCplx.Ghh[k] += abs(srcY[j * stride + i] - yAverage);
-                    else
-                        edgCplx.Ghh[k] -= abs(srcY[j * stride + i] - yAverage);
-                }
-            }
-            // Gvv
-            for (uint32_t j = k * cuSize / 4; j < (k + 1) * cuSize / 4; j++) {
-                for (uint32_t i = 0; i < cuSize; i++) {
-                    if (i < cuSize / 2)
-                        edgCplx.Gvv[k] += abs(srcY[j * stride + i] - yAverage);
-                    else
-                        edgCplx.Gvv[k] -= abs(srcY[j * stride + i] - yAverage);
-                }
-            }
-        }
-    }
-
     // abs
     edgCplx.GLh   = abs(edgCplx.GLh);
     edgCplx.GLv   = abs(edgCplx.GLv);
     edgCplx.GL45  = abs(edgCplx.GL45);
     edgCplx.GL135 = abs(edgCplx.GL135);
+
+
+    // GhhGvv
     if(genGhhGvv) {
+        // Ghh, Gvv
+        for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
+            for (uint32_t i = 0; i < cuSize; i++) {
+                pixel diffAbs = abs(srcY[jStride + i] - yAverage);
+                edgCplx.Ghh[i >> (log2CUSize - 2)] += j < cuSize / 2 ? diffAbs : -diffAbs;
+                edgCplx.Gvv[j >> (log2CUSize - 2)] += i < cuSize / 2 ? diffAbs : -diffAbs;
+            }
+        }
+        // abs
         for (uint32_t i = 0; i < 4; i++) {
             edgCplx.Ghh[i] = abs(edgCplx.Ghh[i]);
             edgCplx.Gvv[i] = abs(edgCplx.Gvv[i]);
@@ -604,75 +578,61 @@ void Analysis::generateGlobalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubP
     uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
     uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
 
-    uint32_t     cuSize     = isSubPart ? ((1 << cuGeom.log2CUSize) >> 1) : (1 << cuGeom.log2CUSize);
+    uint32_t     log2CUSize = isSubPart ? cuGeom.log2CUSize - 1 : cuGeom.log2CUSize;
     uint32_t     stride     = fencYuv.m_size;
     const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
 
-    generateGlobalEdgeComplexityCore(edgCplx, srcY, stride, cuSize, genGhhGvv);
+    generateGlobalEdgeComplexityCore(edgCplx, srcY, stride, log2CUSize, genGhhGvv);
 }
 
-void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t cuSize) // TODO : check padding
+void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t log2CUSize) // TODO : check padding
 {
-    for (uint32_t j = 0; j < cuSize; j++) {
+    uint32_t cuSize = 1 << log2CUSize;
+
+    // flth, fltv, flt45, flt135
+    for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
+        uint32_t jStrideMin1 = jStride == 0                     ? 0                     : jStride - stride;
+        uint32_t jStridePls1 = jStride == (cuSize - 1) * stride ? (cuSize - 1) * stride : jStride + stride;
         for (uint32_t i = 0; i < cuSize; i++) {
-            // flth
-            {
-                pixel pxlA = i == 0          ? srcY[j * stride + 0         ] : srcY[j * stride + i - 1];
-                pixel pxlB = i == cuSize - 1 ? srcY[j * stride + cuSize - 1] : srcY[j * stride + i + 1];
-                fltY[0][j * stride + i] = abs(pxlA - pxlB);
-            }
-            // fltv
-            {
-                pixel pxlA = j == 0          ? srcY[0            * stride + i] : srcY[(j - 1) * stride + i];
-                pixel pxlB = j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i] : srcY[(j + 1) * stride + i];
-                fltY[1][j * stride + i] = abs(pxlA - pxlB);
-            }
-            // flt45
-            {
-                pixel pxlA = i == 0          ? (j == 0          ? srcY[0            * stride + 0         ] : srcY[(j - 1) * stride + 0         ]) 
-                                             : (j == 0          ? srcY[0            * stride + i - 1     ] : srcY[(j - 1) * stride + i - 1     ]);
-                pixel pxlB = i == cuSize - 1 ? (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + cuSize - 1] : srcY[(j + 1) * stride + cuSize - 1])
-                                             : (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i + 1     ] : srcY[(j + 1) * stride + i + 1     ]);
-                fltY[2][j * stride + i] = abs(pxlA - pxlB);
-            }
-            // flt135
-            {
-                pixel pxlA = i == cuSize - 1 ? (j == 0          ? srcY[0            * stride + cuSize - 1] : srcY[(j - 1) * stride + cuSize - 1]) 
-                                             : (j == 0          ? srcY[0            * stride + i + 1     ] : srcY[(j - 1) * stride + i + 1     ]);
-                pixel pxlB = i == 0          ? (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + 0         ] : srcY[(j + 1) * stride + 0         ])
-                                             : (j == cuSize - 1 ? srcY[(cuSize - 1) * stride + i - 1     ] : srcY[(j + 1) * stride + i - 1     ]);
-                fltY[3][j * stride + i] = abs(pxlA - pxlB);
-            }
+            uint32_t iMin1 = i == 0          ? 0          : i - 1;
+            uint32_t iPls1 = i == cuSize - 1 ? cuSize - 1 : i + 1;
+
+            fltY[0][jStride + i] = abs(srcY[jStride     + iMin1] - srcY[jStride     + iPls1]);
+            fltY[1][jStride + i] = abs(srcY[jStrideMin1 + i    ] - srcY[jStridePls1 + i    ]);
+            fltY[2][jStride + i] = abs(srcY[jStrideMin1 + iMin1] - srcY[jStridePls1 + iPls1]);
+            fltY[3][jStride + i] = abs(srcY[jStrideMin1 + iPls1] - srcY[jStridePls1 + iMin1]);
         }
     }
 }
 
-void Analysis::generateLocalEdgeComplexityCore(EdgeComplexity& edgCplx, pixel* fltY[4], uint32_t stride, uint32_t cuSize)
+void Analysis::generateLocalEdgeComplexityCore(EdgeComplexity& edgCplx, pixel* fltY[4], uint32_t stride, uint32_t log2CUSize)
 {
     memset(&edgCplx, 0, sizeof(EdgeComplexity));
 
+    uint32_t cuSize = 1 << log2CUSize;
+
     // yAverage
     uint32_t yAverage[4] = {0, 0, 0, 0};
-    for (uint32_t j = 0; j < cuSize; j++) {
+    for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
         for (uint32_t i = 0; i < cuSize; i++) {
-            yAverage[0] += fltY[0][j * stride + i];
-            yAverage[1] += fltY[1][j * stride + i];
-            yAverage[2] += fltY[2][j * stride + i];
-            yAverage[3] += fltY[3][j * stride + i];
+            yAverage[0] += fltY[0][jStride + i];
+            yAverage[1] += fltY[1][jStride + i];
+            yAverage[2] += fltY[2][jStride + i];
+            yAverage[3] += fltY[3][jStride + i];
         }
     }
-    yAverage[0] = yAverage[0] / cuSize / cuSize;
-    yAverage[1] = yAverage[1] / cuSize / cuSize;
-    yAverage[2] = yAverage[2] / cuSize / cuSize;
-    yAverage[3] = yAverage[3] / cuSize / cuSize;
+    yAverage[0] = yAverage[0] >> (log2CUSize + log2CUSize);
+    yAverage[1] = yAverage[1] >> (log2CUSize + log2CUSize);
+    yAverage[2] = yAverage[2] >> (log2CUSize + log2CUSize);
+    yAverage[3] = yAverage[3] >> (log2CUSize + log2CUSize);
 
     // Lh, Lv, L45, L135
-    for (uint32_t j = 0; j < cuSize; j++) {
+    for (uint32_t j = 0, jStride = 0; j < cuSize; j++, jStride += stride) {
         for (uint32_t i = 0; i < cuSize; i++) {
-            edgCplx.GLh   += abs(fltY[0][j * stride + i] - yAverage[0]);
-            edgCplx.GLv   += abs(fltY[1][j * stride + i] - yAverage[1]);
-            edgCplx.GL45  += abs(fltY[2][j * stride + i] - yAverage[2]);
-            edgCplx.GL135 += abs(fltY[3][j * stride + i] - yAverage[3]);
+            edgCplx.GLh   += abs(fltY[0][jStride + i] - yAverage[0]);
+            edgCplx.GLv   += abs(fltY[1][jStride + i] - yAverage[1]);
+            edgCplx.GL45  += abs(fltY[2][jStride + i] - yAverage[2]);
+            edgCplx.GL135 += abs(fltY[3][jStride + i] - yAverage[3]);
         }
     }
 }
@@ -686,7 +646,8 @@ void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPa
     uint32_t     qNumParts  = cuGeom.numPartitions >> 2;
     uint32_t     absPartIdx = isSubPart ? subPartIdx * qNumParts : 0;
 
-    uint32_t     cuSize     = isSubPart ? ((1 << cuGeom.log2CUSize) >> 1) : (1 << cuGeom.log2CUSize);
+    uint32_t     log2CUSize = isSubPart ? cuGeom.log2CUSize - 1 : cuGeom.log2CUSize;
+    uint32_t     cuSize     = 1 << log2CUSize;
     uint32_t     stride     = fencYuv.m_size;
     const pixel* srcY       = isSubPart ? fencYuv.getLumaAddr(absPartIdx) : fencYuv.m_buf[0];
 
@@ -695,9 +656,9 @@ void Analysis::generateLocalEdgeComplexity(EdgeComplexity& edgCplx, bool isSubPa
         fltY[i] = new pixel[cuSize * stride];
     }
 
-    generateFilterPixel(fltY, srcY, stride, cuSize);
+    generateFilterPixel(fltY, srcY, stride, log2CUSize);
 
-    generateLocalEdgeComplexityCore(edgCplx, fltY, stride, cuSize);
+    generateLocalEdgeComplexityCore(edgCplx, fltY, stride, log2CUSize);
 
     for (uint32_t i = 0; i < 4; i++) {
         delete fltY[i];
@@ -717,37 +678,23 @@ void Analysis::decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeCo
     int64_t maxPGhh, maxPGvv;
     int64_t maxSGh, maxSGv, maxSG45, maxSG135, maxSLh, maxSLv, maxSL45, maxSL135;
     for (uint32_t i = 0; i < 4; i++) {
-        if (i == 0) {
-            maxPGhh = pGEdgCplx.Ghh[i];
-            maxPGvv = pGEdgCplx.Gvv[i];
-            maxSGh   = sGEdgCplx[i].GLh;
-            maxSGv   = sGEdgCplx[i].GLv;
-            maxSG45  = sGEdgCplx[i].GL45;
-            maxSG135 = sGEdgCplx[i].GL135;
-            maxSLh   = sLEdgCplx[i].GLh;
-            maxSLv   = sLEdgCplx[i].GLv;
-            maxSL45  = sLEdgCplx[i].GL45;
-            maxSL135 = sLEdgCplx[i].GL135;
-        }
-        else {
-            maxPGhh = maxPGhh >= pGEdgCplx.Ghh[i] ? maxPGhh : pGEdgCplx.Ghh[i];
-            maxPGvv = maxPGvv >= pGEdgCplx.Gvv[i] ? maxPGvv : pGEdgCplx.Gvv[i];
-            maxSGh   = maxSGh   >= sGEdgCplx[i].GLh   ? maxSGh   : sGEdgCplx[i].GLh;
-            maxSGv   = maxSGv   >= sGEdgCplx[i].GLv   ? maxSGv   : sGEdgCplx[i].GLv;
-            maxSG45  = maxSG45  >= sGEdgCplx[i].GL45  ? maxSG45  : sGEdgCplx[i].GL45;
-            maxSG135 = maxSG135 >= sGEdgCplx[i].GL135 ? maxSG135 : sGEdgCplx[i].GL135;
-            maxSLh   = maxSLh   >= sLEdgCplx[i].GLh   ? maxSLh   : sLEdgCplx[i].GLh;
-            maxSLv   = maxSLv   >= sLEdgCplx[i].GLv   ? maxSLv   : sLEdgCplx[i].GLv;
-            maxSL45  = maxSL45  >= sLEdgCplx[i].GL45  ? maxSL45  : sLEdgCplx[i].GL45;
-            maxSL135 = maxSL135 >= sLEdgCplx[i].GL135 ? maxSL135 : sLEdgCplx[i].GL135;
-        }
+        maxPGhh  = (i == 0 || pGEdgCplx.Ghh[i]   > maxPGhh ) ? pGEdgCplx.Ghh[i]   : maxPGhh ;
+        maxPGvv  = (i == 0 || pGEdgCplx.Gvv[i]   > maxPGvv ) ? pGEdgCplx.Gvv[i]   : maxPGvv ;
+        maxSGh   = (i == 0 || sGEdgCplx[i].GLh   > maxSGh  ) ? sGEdgCplx[i].GLh   : maxSGh  ;
+        maxSGv   = (i == 0 || sGEdgCplx[i].GLv   > maxSGv  ) ? sGEdgCplx[i].GLv   : maxSGv  ;
+        maxSG45  = (i == 0 || sGEdgCplx[i].GL45  > maxSG45 ) ? sGEdgCplx[i].GL45  : maxSG45 ;
+        maxSG135 = (i == 0 || sGEdgCplx[i].GL135 > maxSG135) ? sGEdgCplx[i].GL135 : maxSG135;
+        maxSLh   = (i == 0 || sLEdgCplx[i].GLh   > maxSLh  ) ? sLEdgCplx[i].GLh   : maxSLh  ;
+        maxSLv   = (i == 0 || sLEdgCplx[i].GLv   > maxSLv  ) ? sLEdgCplx[i].GLv   : maxSLv  ;
+        maxSL45  = (i == 0 || sLEdgCplx[i].GL45  > maxSL45 ) ? sLEdgCplx[i].GL45  : maxSL45 ;
+        maxSL135 = (i == 0 || sLEdgCplx[i].GL135 > maxSL135) ? sLEdgCplx[i].GL135 : maxSL135;
     }
 
     int64_t Thl = 5120;
     int64_t Thg = 48 * qp - 634;
     for (uint32_t i = 0; i < depth; i++) {
-      Thl = Thl * 3 / 4 ;
-      Thg = Thg * 3 / 4 ;
+      Thl = ((Thl << 1) + Thl) >> 2;
+      Thg = ((Thg << 1) + Thg) >> 2;
     }
 
     if ((pGh   <= Thg && pLh   <= Thl && maxSGh   <= Thg / 4 && maxPGhh <= Thg / 4 && maxSLh   <= Thl / 4)
@@ -759,7 +706,8 @@ void Analysis::decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeCo
         flagUnsplit = true;
     }
     else if ((pGh > Thg && pGv > Thg && pG45 > Thg && pG135 > Thg)
-          || (pLh > Thl && pLv > Thl && pL45 > Thl && pL135 > Thl)) {
+          || (pLh > Thl && pLv > Thl && pL45 > Thl && pL135 > Thl)
+            ) {
         flagSplit   = true;
         flagUnsplit = false;
     }
@@ -814,18 +762,18 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
         for (uint32_t subPartIdx = 0; subPartIdx < 4; subPartIdx++)
         {
             generateGlobalEdgeComplexity(sGEdgCplx[subPartIdx], true, subPartIdx, false, cuGeom);
-            generateLocalEdgeComplexity (sLEdgCplx[subPartIdx], true, subPartIdx       , cuGeom);
+            generateLocalEdgeComplexity (sLEdgCplx[subPartIdx], true, subPartIdx,        cuGeom);
         }
         // decision
         decisionEdgeComplexity(flagSplit, flagUnsplit, pGEdgCplx, pLEdgCplx, sGEdgCplx, sLEdgCplx, depth, qp);
         // set
         if ((cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && mightSplit) {
-            mightNotSplit = mightNotSplit & flagUnsplit;
-            mightSplit    = mightSplit    & flagSplit  ;
+            mightNotSplit    &= flagUnsplit;
+            mightSplit       &= flagSplit  ;
         }
         else if (enableTryPUfor8x8 && (cuGeom.log2CUSize != MAX_LOG2_CU_SIZE && mightNotSplit) && (cuGeom.log2CUSize == 3 && m_slice->m_sps->quadtreeTULog2MinSize < 3)) {
-            flagTry2Nx2N     = flagTry2Nx2N     & flagUnsplit;
-            flagTryNxNfor8x8 = flagTryNxNfor8x8 & flagSplit  ;
+            flagTry2Nx2N     &= flagUnsplit;
+            flagTryNxNfor8x8 &= flagSplit  ;
         }
     }
 
