@@ -157,10 +157,6 @@ do
             --preset                       veryslow                              \
             --pass                         1                                     \
             --recon                        ${CSTR_DIR_DST_FUL}rec.yuv            \
-            --no-scenecut                                                        \
-            --no-b-adapt                                                         \
-            --bframes                      3                                     \
-            --ref                          2                                     \
             --pools                        none                                  \
             --frame-threads                1                                     \
             >& ${CSTR_DIR_DST_FUL}${CSTR_CDC}.log &
