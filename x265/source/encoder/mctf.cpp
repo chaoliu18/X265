@@ -246,7 +246,7 @@ void Mctf::motionEstimationLuma(
             if ((testx >= 0) && (testx < origWidth / (2 * blockSize)) && (testy >= 0) && (testy < origHeight / (2 * blockSize)))
             {
               MotionVector old = previous->get(testx, testy);
-              int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, old.x * factor, old.y * factor, blockSize, best.error);
+              int error = motionErrorLuma(orig, buffer, blockX, blockY, old.x * factor, old.y * factor, blockSize, best.error);
               if (error < best.error)
               {
                 best.set(old.x * factor, old.y * factor, error);
@@ -255,7 +255,7 @@ void Mctf::motionEstimationLuma(
           }
         }
 #if JVET_V0056_MCTF
-        int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, 0, 0, blockSize, best.error);
+        int error = motionErrorLuma(orig, buffer, blockX, blockY, 0, 0, blockSize, best.error);
         if (error < best.error)
         {
           best.set(0, 0, error);
@@ -267,7 +267,7 @@ void Mctf::motionEstimationLuma(
       {
         for (int x2 = prevBest.x / s_motionVectorFactor - range; x2 <= prevBest.x / s_motionVectorFactor + range; x2++)
         {
-          int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, x2 * s_motionVectorFactor, y2 * s_motionVectorFactor, blockSize, best.error);
+          int error = motionErrorLuma(orig, buffer, blockX, blockY, x2 * s_motionVectorFactor, y2 * s_motionVectorFactor, blockSize, best.error);
           if (error < best.error)
           {
             best.set(x2 * s_motionVectorFactor, y2 * s_motionVectorFactor, error);
@@ -282,7 +282,7 @@ void Mctf::motionEstimationLuma(
         {
           for (int x2 = prevBest.x - doubleRange; x2 <= prevBest.x + doubleRange; x2 += 4)
           {
-            int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, x2, y2, blockSize, best.error);
+            int error = motionErrorLuma(orig, buffer, blockX, blockY, x2, y2, blockSize, best.error);
             if (error < best.error)
             {
               best.set(x2, y2, error);
@@ -296,7 +296,7 @@ void Mctf::motionEstimationLuma(
         {
           for (int x2 = prevBest.x - doubleRange; x2 <= prevBest.x + doubleRange; x2++)
           {
-            int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, x2, y2, blockSize, best.error);
+            int error = motionErrorLuma(orig, buffer, blockX, blockY, x2, y2, blockSize, best.error);
             if (error < best.error)
             {
               best.set(x2, y2, error);
@@ -308,7 +308,7 @@ void Mctf::motionEstimationLuma(
       if (blockY > 0)
       {
         MotionVector aboveMV = mvs.get(blockX / stepSize, (blockY - stepSize) / stepSize);
-        int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, aboveMV.x, aboveMV.y, blockSize, best.error);
+        int error = motionErrorLuma(orig, buffer, blockX, blockY, aboveMV.x, aboveMV.y, blockSize, best.error);
         if (error < best.error)
         {
           best.set(aboveMV.x, aboveMV.y, error);
@@ -317,7 +317,7 @@ void Mctf::motionEstimationLuma(
       if (blockX > 0)
       {
         MotionVector leftMV = mvs.get((blockX - stepSize) / stepSize, blockY / stepSize);
-        int error = motionErrorLuma(orig, buffer, sizX, sizY, blockX, blockY, leftMV.x, leftMV.y, blockSize, best.error);
+        int error = motionErrorLuma(orig, buffer, blockX, blockY, leftMV.x, leftMV.y, blockSize, best.error);
         if (error < best.error)
         {
           best.set(leftMV.x, leftMV.y, error);
@@ -358,8 +358,6 @@ void Mctf::motionEstimationLuma(
 int Mctf::motionErrorLuma(
     const pixel (*orig)[TPF_SIZE_FRA_MAX_Y][TPF_SIZE_FRA_MAX_X],
     const pixel (*buffer)[TPF_SIZE_FRA_MAX_Y][TPF_SIZE_FRA_MAX_X],
-    const int sizX,
-    const int sizY,
     const int x,
     const int y,
           int dx,
