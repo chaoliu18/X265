@@ -131,8 +131,6 @@ private:
     int motionErrorLuma(
         const pixel (*orig)[TPF_SIZE_FRA_MAX_Y][TPF_SIZE_FRA_MAX_X],
         const pixel (*buffer)[TPF_SIZE_FRA_MAX_Y][TPF_SIZE_FRA_MAX_X],
-        const int sizX,
-        const int sizY,
         const int x,
         const int y,
                 int dx,
