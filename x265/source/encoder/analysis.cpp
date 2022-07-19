@@ -511,9 +511,6 @@ void Analysis::qprdRefine(const CUData& parentCTU, const CUGeom& cuGeom, int32_t
     md.bestMode->reconYuv.copyToPicYuv(*m_frame->m_reconPic, parentCTU.m_cuAddr, cuGeom.absPartIdx);
 }
 
-
-
-
 void Analysis::generateGlobalEdgeComplexityCore(EdgeComplexity& edgCplx, const pixel* srcY, uint32_t stride, uint32_t log2CUSize, bool genGhhGvv)
 {
     memset(&edgCplx, 0, sizeof(EdgeComplexity));
@@ -597,7 +594,7 @@ void Analysis::generateGlobalEdgeComplexityParentAndSub(EdgeComplexity& pGEdgCpl
     }
 }
 
-void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t log2CUSize) // TODO : check padding
+void Analysis::generateFilterPixel(pixel* fltY[4], const pixel* srcY, uint32_t stride, uint32_t log2CUSize)
 {
     uint32_t cuSize = 1 << log2CUSize;
 
@@ -748,9 +745,6 @@ void Analysis::decisionEdgeComplexity(bool& flagSplit, bool& flagUnsplit, EdgeCo
     }
 }
 
-
-
-
 uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom, int32_t qp)
 {
     uint32_t depth = cuGeom.depth;
@@ -771,10 +765,7 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
             bAlreadyDecided = false;
     }
 
-
-
-
-    bool enableTryPUfor8x8 = false; // TODO: check commented out
+    bool enableTryPUfor8x8 = false;
 
     bool flagTry2Nx2N     = true;
     bool flagTryNxNfor8x8 = true;
@@ -801,9 +792,6 @@ uint64_t Analysis::compressIntraCU(const CUData& parentCTU, const CUGeom& cuGeom
             flagTryNxNfor8x8 &= flagSplit  ;
         }
     }
-
-
-
 
     if (bAlreadyDecided)
     {
