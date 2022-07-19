@@ -12,7 +12,7 @@ This is the X265 project for 17-th Graduate Student Electronic Design Competitio
 ### Members
 &emsp; Students: Liu Chao, Hou Bingjing, Li Sirui
 
-&emsp; Instructor: Fan Yibo
+&emsp; Supervisor: Fan Yibo
 
 ### Acknowledgement
 This project is based on X265-3.2, which is available at http://ftp.videolan.org/pub/videolan/x265/.
